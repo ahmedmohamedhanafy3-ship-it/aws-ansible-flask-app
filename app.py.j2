@@ -73,13 +73,11 @@ def index():
                 conn.commit()
             return redirect('/')
 
-        # تم التعديل هنا لسحب الـ id مع الملاحظة
         cursor.execute("SELECT id, content, created_at FROM notes ORDER BY created_at DESC")
         notes = cursor.fetchall()
     conn.close()
     return render_template_string(HTML_TEMPLATE, notes=notes)
 
-# دالة جديدة مخصصة لمسح الملاحظات بالـ ID
 @app.route('/delete/<int:note_id>', methods=['POST'])
 def delete_note(note_id):
     conn = get_db_connection()
