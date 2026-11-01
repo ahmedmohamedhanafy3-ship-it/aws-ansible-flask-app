@@ -1,0 +1,87 @@
+---
+- name: 1. Configure Database Server
+  hosts: db
+  become: yes
+  tasks:
+    - name: Install MariaDB server
+      shell: |
+        dnf install -y mariadb105-server || yum install -y mariadb-server
+      args:
+        executable: /bin/bash
+
+    - name: Start and enable MariaDB service
+      systemd:
+        name: mariadb
+        state: started
+        enabled: yes
+
+    - name: Configure Database, User, and Table
+      shell: |
+        mysql -e "CREATE DATABASE IF NOT EXISTS notedb;"
+        mysql -e "CREATE USER IF NOT EXISTS 'noteuser'@'%' IDENTIFIED BY 'notepassword';"
+        mysql -e "GRANT ALL PRIVILEGES ON notedb.* TO 'noteuser'@'%';"
+        mysql -e "FLUSH PRIVILEGES;"
+        mysql -D notedb -e "CREATE TABLE IF NOT EXISTS notes (id INT AUTO_INCREMENT PRIMARY KEY, content TEXT NOT NULL, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP);"
+
+- name: 2. Configure Web Server
+  hosts: web
+  become: yes
+  vars:
+    db_private_ip: "{{ hostvars[groups['db'][0]]['ansible_default_ipv4']['address'] }}"
+  tasks:
+    - name: Stop httpd if running to free port 80
+      systemd:
+        name: httpd
+        state: stopped
+        enabled: no
+      ignore_errors: yes
+
+    - name: Install Python3 and Pip
+      dnf:
+        name:
+          - python3
+          - python3-pip
+        state: present
+
+    - name: Install Flask and PyMySQL
+      pip:
+        name:
+          - flask
+          - pymysql
+        executable: pip3
+
+    - name: Create application directory
+      file:
+        path: /opt/noteapp
+        state: directory
+        mode: '0755'
+
+    - name: Deploy app.py from template
+      template:
+        src: app.py.j2
+        dest: /opt/noteapp/app.py
+        mode: '0755'
+
+    - name: Create systemd service for NoteApp
+      copy:
+        dest: /etc/systemd/system/noteapp.service
+        content: |
+          [Unit]
+          Description=Flask Note Taking Web App
+          After=network.target
+
+          [Service]
+          User=root
+          WorkingDirectory=/opt/noteapp
+          ExecStart=/usr/bin/python3 /opt/noteapp/app.py
+          Restart=always
+
+          [Install]
+          WantedBy=multi-user.target
+
+    - name: Start and Enable NoteApp service
+      systemd:
+        name: noteapp
+        daemon_reload: yes
+        state: restarted
+        enabled: yes
